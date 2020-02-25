@@ -1,0 +1,142 @@
+openapi: 3.0.0
+info:
+  description: "API for my website"
+  title: "API for my website"
+  version: 1.0.0
+schemes:
+  - http
+consumes:
+  - application/json
+produces:
+  - application/json
+
+tags:
+  - name: Authentication
+    description: "Operations relating to authenticating the user account & device."
+  - name: Game
+    description: "All JS game related API."
+
+x-amazon-apigateway-request-validators:
+  standard:
+    validateRequestBody: true
+    validateRequestParameters: true
+  params:
+    validateRequestBody: false
+    validateRequestParameters: true
+  none:
+    validateRequestBody: false
+    validateRequestParameters: false
+x-amazon-apigateway-request-validator: standard
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RegisterEndpointLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Returns a success status."
+      operationId: RegisterEndpoint
+      requestBody:
+        description: "user data for registration"
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterUser"
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LoginEndpointLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Returns a success status."
+      operationId: LoginEndpoint
+      requestBody:
+        description: "user data for registration"
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Login"
+  
+  /contact-email:
+    post:
+      tags:
+        - Contact
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ContactEmailLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Send me the message and confirms sent to the sender"
+      operationId: LoginEndpoint
+        
+components:
+  schemas:
+    RegisterUser:
+      type: object
+      required:
+        - email
+        - password
+        - first_name
+        - last_name
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 255
+        first_name:
+          type: string
+          maxLength: 255
+        last_name:
+          type: string
+          maxLength: 255
+
+    Login:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          description: "the email belonging to the user account"
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          description: "the password for the user account"
+          format: password
+          maxLength: 255
+
+    AddGame:
+      type: object
+      required:
+        - player_name
+        - game_level
+      properties:
+        player_name:
+          type: string
+          maxLength: 255
+        game_level:
+          type: string
+          maxLength: 255

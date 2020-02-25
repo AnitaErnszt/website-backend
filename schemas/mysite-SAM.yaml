@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+    my-api-template
+
+    Cloudformation SAM Template for my website
+
+Globals:
+  Function:
+    Timeout: 20
+    Runtime: python3.7
+Parameters:
+  StageName:
+    Type: String
+    Description: The name of the stage, e.g. "dev", "preprod", "prod"
+    Default: dev
+
+Resources:
+  #####################
+  # API GW Definition #
+  #####################
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:
+        Fn::Sub: mysite-api
+      StageName:
+        Ref: StageName
+      MethodSettings:
+        - HttpMethod: "*"
+          ResourcePath: "/*"
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: mysite-api.yaml
+            
+  #################
+  # Lambda Layers #
+  #################
+  BaseDependencyLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: python-base
+      Description: Base packages for lambda
+      ContentUri: ../layers/base/
+      CompatibleRuntimes:
+        - python3.7
+
+  ############################
+  # Register Endpoint Lambda #
+  ############################
+  RegisterEndpointLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/auth/
+      Environment:
+        Variables:
+          DYNAMO_TABLE:
+            Ref: WebsiteUsersData
+          USERPOOL_ID:
+            Ref: MysiteUserPool
+          CLIENT_ID:
+            Ref: MysitePoolClient
+      FunctionName:
+        Fn::Sub: mysite-register-lambda
+      Handler: register_endpoint.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminInitiateAuth
+                - cognito-idp:AdminConfirmSignUp
+                - cognito-idp:SignUp
+                - cognito-idp:AdminDeleteUser
+                - cognito-idp:AdminUpdateUserAttributes
+                - dynamodb:PutItem
+              Resource: "*"
+  RegisterEndpointAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: RegisterEndpointLambda
+      Principal: apigateway.amazonaws.com
+
+  #########################
+  # Login Endpoint Lambda #
+  #########################
+  LoginEndpointLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/auth/
+      Environment:
+        Variables:
+          DYNAMO_TABLE:
+            Ref: WebsiteUsersData
+          USERPOOL_ID:
+            Ref: MysiteUserPool
+          CLIENT_ID:
+            Ref: MysitePoolClient
+      FunctionName:
+        Fn::Sub: mysite-login-lambda
+      Handler: login_endpoint.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - cognito-idp:InitiateAuth
+              Resource: "*"
+  LoginEndpointAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: LoginEndpointLambda
+      Principal: apigateway.amazonaws.com
+
+  ###########################
+  # Contact-me Email Lambda #
+  ###########################
+  ContactEmailLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/contact-me/
+      FunctionName:
+        Fn::Sub: mysite-contact-me-email
+      Handler: contact.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - SES:SendEmail
+              Resource: "*"
+  ContactEmailPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: ContactEmailLambda
+      Principal: apigateway.amazonaws.com
+      
+  ###################
+  # Dynamodb tables #
+  ###################
+  WebsiteUsersData:
+    Type: AWS::DynamoDB::Table
+    Description: "Store user data for my website"
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      TableName:
+        Fn::Sub: mysite-userdata
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+  GameResultsDB:
+    Type: AWS::DynamoDB::Table
+    Description: "Game results database"
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      TableName:
+        Fn::Sub: mysite-gameresults
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  ############
+  # Userpool #
+  ############
+  MysiteUserPool:
+    Type: AWS::Cognito::UserPool
+    Description: "Users for my website"
+    Properties:
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      UserPoolName:
+        Fn::Sub: mysite-userpool
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: family_name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: given_name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+  MysitePoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      GenerateSecret: false
+      ClientName:
+        Fn::Sub: mysite-client
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      UserPoolId:
+        Ref: MysiteUserPool
