@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Uncomment below if you have multiple aws profiles configured
 export AWS_PROFILE=myawsaccount
+
+CONFIG_PATH=s3://anitaernszt-website/deployment/dev-config.json
+
+aws s3 cp $CONFIG_PATH tmp/deploy-cfg.json
 
 # CHANGE THIS BUCKET
 S3_BUCKET=anitaernszt-website
@@ -18,6 +21,5 @@ aws cloudformation package --template-file $INPUT_FILE \
 
 aws cloudformation deploy --template-file $OUTPUT_FILE \
                           --stack-name $STACK_NAME \
-                          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
-
-#$(jq -r 'to_entries[] | "\(.key)=\(.value)"' buildfiles/config.json)
+                          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+                          --parameter-overrides $(jq -r 'to_entries[] | "\(.key)=\(.value)"' tmp/deploy-cfg.json)

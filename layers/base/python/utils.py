@@ -85,21 +85,46 @@ def parse_dynamo_response(response):
 
     return res_dict
     
-
-def auth_response(id, session, table=None, user=None):
-    dynamodb = boto3.client("dynamodb")
-    if table is not None:
-        try:
-            get_user_response = dynamodb.get_item(
-                TableName=table, Key={"id": {"S": id}}
-            )
-        except Exception:
-            return bug_response("User_data.Exception", 404)
-        user = parse_dynamo_response(get_user_response)
-        user_keys = ["first_name", "last_name", "email"]
-        user_data = {key: user.get(key) for key in user_keys}
-    else:
-        user_data = user
-    response_data = {"id": id, "session": session, "user": user_data}
-    return response_data
     
+def reg_response(auth_response, payload):
+    authentication = auth_response["AuthenticationResult"]
+    data = {"session": return_tokens(authentication),
+            "user": payload
+    }
+    return api_respond(data)
+
+
+def response_data(auth_response, table):
+    authentication = auth_response["AuthenticationResult"]
+    data = {"session": return_tokens(authentication),
+            "user": return_user(authentication, table)
+    }
+    return api_respond(data)
+    
+
+def return_tokens(authentication):
+    tokens = {"refresh_token": authentication.get("RefreshToken"),
+            "id_token": authentication["IdToken"]}
+    return tokens
+    
+    
+def return_user(authentication, table):
+    user_id = get_user_id(authentication["AccessToken"])
+    
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(table)
+    
+    response = table.get_item(
+        Key={
+            "id": user_id
+        })
+    return response["Item"]
+    
+    
+def get_user_id(acces_token):
+    cognito = boto3.client("cognito-idp")
+    response = cognito.get_user(
+        AccessToken=acces_token
+        )
+    user_id = response["Username"]
+    return user_id

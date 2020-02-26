@@ -1,19 +1,30 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-    my-api-template
-
-    Cloudformation SAM Template for my website
-
+    Cloudformation schema for my website
+    
 Globals:
   Function:
     Timeout: 20
     Runtime: python3.7
+
 Parameters:
   StageName:
-    Type: String
-    Description: The name of the stage, e.g. "dev", "preprod", "prod"
+    Description: Environment type.
     Default: dev
+    Type: String
+    AllowedValues: [prod, dev, test]
+  DBNAME:
+    Type: String
+    Description: Table name for the RDS database
+  DBUSERNAME:
+    Type: String
+    Description: Username for the RDS database
+    NoEcho: true
+  DBPASSWORD:
+    Type: String
+    Description: Password for the RDS database
+    NoEcho: true
 
 Resources:
   #####################
@@ -29,21 +40,84 @@ Resources:
       MethodSettings:
         - HttpMethod: "*"
           ResourcePath: "/*"
+      Auth:
+        Authorizers:
+          bearerAuth:
+            AuthType: COGNITO_USER_POOLS
+            UserPoolArn: !GetAtt MysiteUserPool.Arn
       DefinitionBody:
         Fn::Transform:
           Name: AWS::Include
           Parameters:
             Location: mysite-api.yaml
-            
+
+  #####################
+  # Default Responses #
+  #####################
+  UnauthorizedGatewayResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+      ResponseType: UNAUTHORIZED
+      ResponseTemplates:
+        application/json: '{ "message" : "$context.error.message", "error" : "$context.error.validationErrorString"}'
+      RestApiId:
+        Ref: RestApi
+  4XXGatewayResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+      ResponseType: DEFAULT_4XX
+      ResponseTemplates:
+        application/json: '{ "message" : "$context.error.message", "error" : "$context.error.validationErrorString"}'
+      RestApiId:
+        Ref: RestApi
+  5XXGatewayResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+      ResponseType: DEFAULT_5XX
+      RestApiId:
+        Ref: RestApi
+  BadRequestBodyResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+      ResponseType: BAD_REQUEST_BODY
+      ResponseTemplates:
+        application/json: '{ "message" : "$context.error.message", "error" : "$context.error.validationErrorString"}'
+      RestApiId:
+        Ref: RestApi
+
   #################
   # Lambda Layers #
   #################
   BaseDependencyLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: python-base
+      LayerName: mywebsite-python-base
       Description: Base packages for lambda
       ContentUri: ../layers/base/
+      CompatibleRuntimes:
+        - python3.7
+  RDSDependencyLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: mywebsite-rds
+      Description: Packages to handle Postgres database
+      ContentUri: ../layers/database/
       CompatibleRuntimes:
         - python3.7
 
@@ -75,7 +149,6 @@ Resources:
                 - cognito-idp:AdminInitiateAuth
                 - cognito-idp:AdminConfirmSignUp
                 - cognito-idp:SignUp
-                - cognito-idp:AdminDeleteUser
                 - cognito-idp:AdminUpdateUserAttributes
                 - dynamodb:PutItem
               Resource: "*"
@@ -123,6 +196,37 @@ Resources:
         Ref: LoginEndpointLambda
       Principal: apigateway.amazonaws.com
 
+  ###################
+  # Get User Lambda #
+  ###################
+  GetUserLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/account/
+      FunctionName:
+        Fn::Sub: mysite-getuser
+      Handler: getuser.lambda_handler
+      Environment:
+        Variables:
+          DYNAMO_TABLE:
+            Ref: WebsiteUsersData
+      Layers:
+        - Ref: BaseDependencyLayer
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource: "*"
+  GetUserPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: GetUserLambda
+      Principal: apigateway.amazonaws.com
+      
   ###########################
   # Contact-me Email Lambda #
   ###########################
@@ -148,6 +252,118 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName:
         Ref: ContactEmailLambda
+      Principal: apigateway.amazonaws.com
+
+  #############################
+  # RDS - create table Lambda #
+  #############################
+  CreateTableLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/game/
+      Environment:
+        Variables:
+          HOST: !GetAtt GameDatabase.Endpoint.Address
+          DBNAME: !Ref DBNAME
+          DBPASSWORD: !Ref DBPASSWORD
+          DBUSERNAME: !Ref DBUSERNAME
+      FunctionName:
+        Fn::Sub: mysite-create-table-lambda
+      Handler: create_table.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+        - Ref: RDSDependencyLayer
+  CreateTableAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: CreateTableLambda
+      Principal: apigateway.amazonaws.com
+
+  ##########################
+  # RDS - POST Game Lambda #
+  ##########################
+  PostGameLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/game/
+      Environment:
+        Variables:
+          HOST: !GetAtt GameDatabase.Endpoint.Address
+          DBNAME: !Ref DBNAME
+          DBPASSWORD: !Ref DBPASSWORD
+          DBUSERNAME: !Ref DBUSERNAME
+      FunctionName:
+        Fn::Sub: mysite-post-game-lambda
+      Handler: post_game.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+        - Ref: RDSDependencyLayer
+  PostGameAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: PostGameLambda
+      Principal: apigateway.amazonaws.com
+      
+  #########################
+  # RDS - GET Game Lambda #
+  #########################
+  GetGameLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/game/
+      Environment:
+        Variables:
+          HOST: !GetAtt GameDatabase.Endpoint.Address
+          DBNAME: !Ref DBNAME
+          DBPASSWORD: !Ref DBPASSWORD
+          DBUSERNAME: !Ref DBUSERNAME
+      FunctionName:
+        Fn::Sub: mysite-get-game-lambda
+      Handler: get_game.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+        - Ref: RDSDependencyLayer
+  GetGameAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: GetGameLambda
+      Principal: apigateway.amazonaws.com
+      
+  #############################
+  # DynamoDB Post Game Lambda #
+  #############################
+  DynamoDBPostGameLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/game/
+      Environment:
+        Variables:
+          DYNAMO_TABLE:
+            Ref: GameResultsDB
+      FunctionName:
+        Fn::Sub: mysite-dynamo-post-game-lambda
+      Handler: dynamo_post_game.lambda_handler
+      Layers:
+        - Ref: BaseDependencyLayer
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: "*"
+  DynamoDBPostGamePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: DynamoDBPostGameLambda
       Principal: apigateway.amazonaws.com
       
   ###################
@@ -179,7 +395,7 @@ Resources:
       KeySchema:
         - AttributeName: id
           KeyType: HASH
-
+        
   ############
   # Userpool #
   ############
@@ -224,3 +440,20 @@ Resources:
         - ALLOW_REFRESH_TOKEN_AUTH
       UserPoolId:
         Ref: MysiteUserPool
+
+  #########################
+  # Game Results Database #
+  #########################
+  GameDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: "20"
+      DBInstanceClass: db.t2.micro
+      DBInstanceIdentifier: game-database
+      DBSubnetGroupName: default-vpc-058f5ff9102de99d3
+      DBName: !Ref DBNAME
+      Engine: Postgres
+      EngineVersion: "11.5"
+      MasterUserPassword: !Ref DBPASSWORD
+      MasterUsername: !Ref DBUSERNAME
+      PubliclyAccessible: true

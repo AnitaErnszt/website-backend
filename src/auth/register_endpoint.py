@@ -1,26 +1,22 @@
-from utils import api_respond, bug_response, auth_response
-import os
-import json
-import boto3
-from datetime import date
+from utils import bug_response, reg_response
+import json, boto3, os
 
 def lambda_handler(event, context):
-    print(event)
+    #Set up enviroment variables and boto3
     cognito = boto3.client("cognito-idp")
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(os.environ["DYNAMO_TABLE"])
     userpool_id = os.environ["USERPOOL_ID"]
     client_id = os.environ["CLIENT_ID"]
 
-    body = json.loads(event.get("body"))
+    #Parse payload
+    payload = json.loads(event.get("body"))
+    email = payload["email"]
+    last_name = payload["last_name"]
+    first_name = payload["first_name"]
+    password = payload["password"]
 
-    email = body["email"]
-    last_name = body["last_name"]
-    first_name = body["first_name"]
-    password = body["password"]
-
-    # Calls Cognito to add user to the user pool
-
+    #Call Cognito to add user to the user pool
     try:
         cognito_response = cognito.sign_up(
             ClientId=client_id,
@@ -50,83 +46,45 @@ def lambda_handler(event, context):
     except Exception:
         return bug_response("Signup.Exception")
 
-    verify_email_response = cognito.admin_update_user_attributes(
-        UserPoolId=userpool_id,
-        Username=email,
-        UserAttributes=[{"Name": "email_verified", "Value": "true"},],
-    )
-
-    # Confirms the sign up. Cognito can only assign token for confirmed users
-
+    #Verify email address
     try:
-        confirm_signup = cognito.admin_confirm_sign_up(
-            UserPoolId=userpool_id, Username=cognito_response["UserSub"]
+        cognito.admin_update_user_attributes(
+            UserPoolId=userpool_id,
+            Username=email,
+            UserAttributes=[{"Name": "email_verified", "Value": "true"}]
         )
-
-    except cognito.exceptions.InvalidParameterException:
-        return bug_response("InvalidParameterException", email)
-
-    except cognito.exceptions.NotAuthorizedException:
-        return bug_response("NotAuthorizedException")
-
-    except cognito.exceptions.UserNotFoundException:
-        return bug_response("UserNotFoundException")
-
+    
     except Exception:
         return bug_response("Confirm.Exception")
 
-    # Provide session tokens for users
+    #Confirm the sign up. Cognito can only assign token for confirmed users
     try:
-        session_response = cognito.admin_initiate_auth(
-            UserPoolId=userpool_id,
-            ClientId=client_id,
-            AuthFlow="ADMIN_USER_PASSWORD_AUTH",
-            AuthParameters={"USERNAME": email, "PASSWORD": password},
-        )
-        session = {
-            "id_token": session_response["AuthenticationResult"]["IdToken"],
-            "refresh_token": session_response["AuthenticationResult"]["RefreshToken"],
-        }
-
-    except cognito.exceptions.InvalidParameterException:
-        return bug_response("InvalidParameterException")
-
-    except cognito.exceptions.NotAuthorizedException:
-        return bug_response("NotAuthorizedException")
-
-    except cognito.exceptions.PasswordResetRequiredException:
-        return bug_response("PasswordResetRequiredException")
-
-    except cognito.exceptions.UserNotConfirmedException:
-        return bug_response("UserNotConfirmedException")
-        
-    except cognito.exceptions.UserNotFoundException:
-        return bug_response("UserNotFoundException")
+        cognito.admin_confirm_sign_up(
+            UserPoolId=userpool_id, Username=cognito_response["UserSub"]
+            )
 
     except Exception:
-        return bug_response("Token.Exception")
-
-    # Add user to the database
+        return bug_response("Confirm.Exception")
+    
+    #Add user to the database
     try:
-        dynamo_response = table.put_item(
+        table.put_item(
             Item={
                 "id": id,
                 "email": email,
                 "first_name": first_name,
                 "last_name": last_name
-            }
-        )
+            })
+        
     except Exception:
         return bug_response("DynamoDB.Exception")
+        
+    #Login the user after registering them
+    auth_response = cognito.initiate_auth(
+            ClientId=client_id,
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={"USERNAME": email, "PASSWORD": password},
+        )
 
-    verify_email_response = cognito.admin_update_user_attributes(
-        UserPoolId=userpool_id,
-        Username=email,
-        UserAttributes=[{"Name": "email_verified", "Value": "true"},],
-    )
-
-    user = {"first_name": first_name, "last_name": last_name, "email": email}
-    data = auth_response(id, session, user=user)
-
-    return api_respond(data)
-
+    #Return API response
+    return reg_response(auth_response, payload)

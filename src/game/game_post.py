@@ -7,10 +7,12 @@ import uuid
 
 def lambda_handler(event, context):
     print(event["body"])
-    rds_database = os.environ["PGHOST"]
-    username = os.environ["PGUSER"]
-    password = os.environ["PGPASSWORD"]
-    db_name = os.environ["PGDATABASE"]
+    rds_address = os.environ["HOST"]
+    username = os.environ["DBUSERNAME"]
+    password = os.environ["DBPASSWORD"]
+    db_name = os.environ["DBNAME"]
+
+    conn = psycopg2.connect(host=rds_address, dbname=db_name, user=username, password=password)
     
     body = json.loads(event["body"])
     game_data_list = []
@@ -24,7 +26,6 @@ def lambda_handler(event, context):
     for key in game_data:
         game_data_list.append(game_data[key])
           
-    conn = psycopg2.connect(host=rds_database, dbname=db_name, user=username, password=password)
     cur = conn.cursor()
     cur.execute(
         """

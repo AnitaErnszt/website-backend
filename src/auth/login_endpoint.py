@@ -1,30 +1,25 @@
-from utils import api_respond, bug_response, auth_response
-import json
-import boto3
-import os
-from jose import jwt
+from utils import bug_response, response_data
+import json, boto3, os
 
 def lambda_handler(event, context):
+    #Set up enviroment variables and boto3
     cognito = boto3.client("cognito-idp")
     client_id = os.environ["CLIENT_ID"]
     table = os.environ["DYNAMO_TABLE"]
 
-    request_body = json.loads(event.get("body"))
+    #Parse payload
+    payload = json.loads(event.get("body"))
+    email = payload.get("email")
+    password = payload.get("password")
 
-    email = request_body.get("email")
-    password = request_body.get("password")
-
+    #Authenticate the user
     try:
-        session_response = cognito.initiate_auth(
+        auth_response = cognito.initiate_auth(
             ClientId=client_id,
             AuthFlow="USER_PASSWORD_AUTH",
             AuthParameters={"USERNAME": email, "PASSWORD": password},
         )
 
-        id_token = session_response["AuthenticationResult"]["IdToken"]
-        refresh_token = session_response["AuthenticationResult"]["RefreshToken"]
-
-        session = {"id_token": id_token, "refresh_token": refresh_token}
     except cognito.exceptions.InvalidParameterException:
         return bug_response("InvalidParameterException")
 
@@ -43,10 +38,5 @@ def lambda_handler(event, context):
     except Exception:
         return bug_response("Token.Exception")
 
-    claims = jwt.get_unverified_claims(id_token)
-    id = claims.get("sub")
-    
-    data = auth_response(id, session, table=table)
-
-    return api_respond(data)
-
+    #Return API response
+    return response_data(auth_response, table)

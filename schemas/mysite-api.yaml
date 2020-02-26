@@ -15,6 +15,8 @@ tags:
     description: "Operations relating to authenticating the user account & device."
   - name: Game
     description: "All JS game related API."
+  - name: Account
+    description: "Account related user data"
 
 x-amazon-apigateway-request-validators:
   standard:
@@ -83,8 +85,64 @@ paths:
         type: aws_proxy
         responses: {}
       summary: "Send me the message and confirms sent to the sender"
-      operationId: LoginEndpoint
-        
+      operationId: ContactEmail
+      
+  /account:
+    get:
+      tags:
+        - Account
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUserLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Gets user attributes for a registered user"
+      operationId: "GetUser"
+      security:
+        - bearerAuth: []
+
+  /dynamodb-game:
+    post:
+      tags:
+        - Game
+      x-amazon-apigateway-integration:
+        uri:
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DynamoDBPostGameLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Add game details to database"
+      operationId: "PostGame"
+
+  /game:
+    post:
+      tags:
+        - Game
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostGameLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Posts the game results to RDS database"
+      operationId: PostGame
+    get:
+      tags:
+        - Game
+      x-amazon-apigateway-integration:
+        uri:
+          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetGameLambda.Arn}/invocations"
+        passthroughBehaviour: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+        responses: {}
+      summary: "Get game results from RDS database"
+      operationId: GetGame
+      
 components:
   schemas:
     RegisterUser:
@@ -140,3 +198,8 @@ components:
         game_level:
           type: string
           maxLength: 255
+  
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
