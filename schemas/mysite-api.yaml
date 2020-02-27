@@ -116,32 +116,6 @@ paths:
         responses: {}
       summary: "Add game details to database"
       operationId: "PostGame"
-
-  /game:
-    post:
-      tags:
-        - Game
-      x-amazon-apigateway-integration:
-        uri:
-          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostGameLambda.Arn}/invocations"
-        passthroughBehaviour: when_no_match
-        httpMethod: POST
-        type: aws_proxy
-        responses: {}
-      summary: "Posts the game results to RDS database"
-      operationId: PostGame
-    get:
-      tags:
-        - Game
-      x-amazon-apigateway-integration:
-        uri:
-          "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetGameLambda.Arn}/invocations"
-        passthroughBehaviour: when_no_match
-        httpMethod: POST
-        type: aws_proxy
-        responses: {}
-      summary: "Get game results from RDS database"
-      operationId: GetGame
       
 components:
   schemas:
