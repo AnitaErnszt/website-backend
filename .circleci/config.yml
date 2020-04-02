@@ -10,12 +10,5 @@ jobs:
       - checkout
       - sam/install
       - sam/local-start-api:
-          endpoint: test
+          endpoint: v1/auth/register
       - run: bash .circleci/deploy.sh
-
-workflows:
-  version: 2
-  deploy:
-    jobs:
-      - build_and_test:
-          context: aws_config
