@@ -17,4 +17,5 @@ workflows:
   version: 2
   deploy:
     jobs:
-      - build_and_test     
+      - build_and_test  
+          context: aws_config
