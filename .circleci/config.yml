@@ -11,6 +11,7 @@ jobs:
       - sam/install
       - sam/local-start-api:
           endpoint: v1/auth/register
+          template: ./schemas/mysite-SAM.yaml
       - run: bash .circleci/deploy.sh
       
 workflows:
